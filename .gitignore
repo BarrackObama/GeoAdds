@@ -1,0 +1,11 @@
+node_modules/
+.env
+logs/
+*.log
+dist/
+.DS_Store
+Thumbs.db
+.cache/
+.antigravity/
+.docker/
+-debug.log

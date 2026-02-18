@@ -1,0 +1,40 @@
+{
+  "name": "offgrid-storings-tracker",
+  "version": "1.0.0",
+  "description": "Automatische storings-tracker met Google Ads & Meta Ads campagne automatisering voor Offgridcentrum",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "setup:google": "node src/utils/google-auth-setup.js",
+    "setup:meta": "node src/utils/meta-auth-setup.js",
+    "test:connections": "node src/utils/test-connections.js"
+  },
+  "keywords": [
+    "stroomstoring",
+    "thuisbatterij",
+    "google-ads",
+    "meta-ads",
+    "offgridcentrum"
+  ],
+  "author": "Offgridcentrum",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "facebook-nodejs-business-sdk": "^21.0.0",
+    "google-ads-api": "^14.1.0",
+    "node-cron": "^3.0.3",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
