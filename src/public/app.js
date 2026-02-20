@@ -221,8 +221,8 @@ async function updateOutages() {
                             <input type="number" id="radius-${o.id}" value="${o._severity?.radiusKm || 5}" min="1" max="50">
                         </div>
                         <div class="option-field">
-                            <label>Duur (uur)</label>
-                            <input type="number" id="duration-${o.id}" value="72" min="1" max="168">
+                            <label>Duur (dagen)</label>
+                            <input type="number" id="duration-${o.id}" value="3" min="1" max="14">
                         </div>
                     </div>
                     <div class="platforms-selection">
@@ -291,7 +291,8 @@ async function createManualCampaign(outageId) {
 
     const customBudget = budgetInput ? parseFloat(budgetInput.value) : null;
     const customRadius = radiusInput ? parseFloat(radiusInput.value) : null;
-    const customDuration = durationInput ? parseInt(durationInput.value) : null;
+    const customDurationDays = durationInput ? parseInt(durationInput.value) : null;
+    const customDuration = customDurationDays ? customDurationDays * 24 : null;
 
     const platforms = [];
     if (platGoogle && platGoogle.checked) platforms.push('google');
