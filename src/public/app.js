@@ -1,6 +1,8 @@
 // ── Config ───────────────────────────────
 const API_BASE = '';  // same origin
 const REFRESH_INTERVAL = 15000; // 15 seconds
+const NOTIFICATION_THRESHOLD = 500; // Households
+let notifiedOutages = new Set(); // Track notified IDs in memory
 
 // ── Fetch helpers ────────────────────────
 async function fetchJSON(endpoint) {
@@ -63,6 +65,26 @@ function getLogBadgeLabel(type) {
         'error': 'Fout',
     };
     return map[type] || type;
+}
+
+// ── Notification helper ──────────────────
+async function requestNotificationPermission() {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+        await Notification.requestPermission();
+    }
+}
+
+function sendOutageNotification(outage) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    const city = outage._city || 'Onbekend';
+    const households = outage.impact?.households || 0;
+
+    new Notification("🚨 Grote Storing Gedetecteerd!", {
+        body: `Stroomstoring in ${city} treft ${households} huishoudens. Bekijk het dashboard voor actie.`,
+        icon: '/favicon.ico' // Or any relevant icon
+    });
 }
 
 // ── Update functions ─────────────────────
@@ -154,8 +176,16 @@ async function updateOutages() {
             householdLabel = `${prefix}${o.impact.households} huishoudens`;
         }
 
+        const isHighImpact = (o.impact?.households || 0) >= NOTIFICATION_THRESHOLD;
+
+        // Notify if new and high impact
+        if (isHighImpact && !notifiedOutages.has(o.id)) {
+            sendOutageNotification(o);
+            notifiedOutages.add(o.id);
+        }
+
         html += `
-        <div class="outage-item" onclick="toggleOutageDetail(this)">
+        <div class="outage-item ${isHighImpact ? 'high-impact' : ''}" onclick="toggleOutageDetail(this)">
             <div class="outage-main">
                 <div class="outage-severity ${sev.toLowerCase()}"></div>
                 <div class="outage-details">
@@ -446,5 +476,6 @@ function startRefreshCycle() {
 }
 
 // ── Init ─────────────────────────────────
+requestNotificationPermission();
 refreshAll();
 startRefreshCycle();

@@ -88,39 +88,11 @@ async function pollOutages() {
                 continue;
             }
 
-            // Google Ads campagne
-            try {
-                const requestedBudget = outage._severity?.googleBudget || 0;
-                if (outageService.canCreateNewCampaign('google', requestedBudget)) {
-                    const googleCampaign = await googleAdsService.createCampaign(outage);
-                    if (googleCampaign) {
-                        outageService.registerCampaign(outage.id, 'google', googleCampaign);
-                        addLogEntry('campaign_created', `Google Ads campagne aangemaakt voor ${outage._city}`, googleCampaign);
-                    }
-                } else {
-                    addLogEntry('campaign_skipped', `Google Ads overgeslagen (budget limiet) voor ${outage._city}`, { id: outage.id });
-                }
-            } catch (error) {
-                logger.error(`Fout bij Google Ads campagne voor ${outage.id}: ${error.message}`);
-                addLogEntry('campaign_error', `Google Ads fout: ${error.message}`, { outageId: outage.id });
-            }
-
-            // Meta Ads campagne
-            try {
-                const requestedBudget = outage._severity?.metaBudget || 0;
-                if (outageService.canCreateNewCampaign('meta', requestedBudget)) {
-                    const metaCampaign = await metaAdsService.createCampaign(outage);
-                    if (metaCampaign) {
-                        outageService.registerCampaign(outage.id, 'meta', metaCampaign);
-                        addLogEntry('campaign_created', `Meta Ads campagne aangemaakt voor ${outage._city}`, metaCampaign);
-                    }
-                } else {
-                    addLogEntry('campaign_skipped', `Meta Ads overgeslagen (budget limiet) voor ${outage._city}`, { id: outage.id });
-                }
-            } catch (error) {
-                logger.error(`Fout bij Meta Ads campagne voor ${outage.id}: ${error.message}`);
-                addLogEntry('campaign_error', `Meta Ads fout: ${error.message}`, { outageId: outage.id });
-            }
+            // Alleen logging van nieuwe storingen, campagnes zijn nu handmatig
+            logger.info(
+                `🆕 Nieuwe storing gedetecteerd: ${outage.id} in ${outage._city} ` +
+                `(${outage._severity.label}, ${outage.impact?.households || 0} huishoudens)`
+            );
         }
 
         // 4. Opgeloste storingen → direct campagnes pauzeren

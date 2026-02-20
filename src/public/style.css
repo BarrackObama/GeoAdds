@@ -837,6 +837,52 @@ body::before {
     color: #14532d;
 }
 
+/* ── High Impact Alerts ──────────── */
+.outage-item.high-impact {
+    border: 2px solid var(--accent-amber);
+    box-shadow: 0 4px 20px rgba(249, 164, 63, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+.outage-item.high-impact::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 2px var(--accent-amber);
+    animation: pulse-high-impact 2s infinite;
+}
+
+@keyframes pulse-high-impact {
+    0% {
+        opacity: 0.1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+
+    100% {
+        opacity: 0.1;
+    }
+}
+
+.high-impact .outage-city::after {
+    content: '🚨 GROOT';
+    font-size: 0.65rem;
+    font-weight: 800;
+    background: var(--accent-amber);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
 /* ── Responsive ──────────────────── */
 @media (max-width: 600px) {
     .app {
