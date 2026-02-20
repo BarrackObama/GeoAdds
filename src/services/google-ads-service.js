@@ -14,6 +14,7 @@ class GoogleAdsService {
         this.client = null;
         this.customer = null;
         this.landingPageUrl = process.env.LANDING_PAGE_URL || 'https://offgridcentrum.nl/thuisbatterij';
+        this.simulationMode = process.env.SIMULATION_MODE === 'true';
 
         this._initialize();
     }
@@ -25,6 +26,12 @@ class GoogleAdsService {
         const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
         const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
         const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID;
+
+        if (this.simulationMode) {
+            this.enabled = true;
+            logger.info('🧪 Google Ads service geïnitialiseerd in SIMULATIE MODUS');
+            return;
+        }
 
         if (!clientId || !clientSecret || !developerToken || !refreshToken || !customerId) {
             logger.warn(
@@ -66,6 +73,10 @@ class GoogleAdsService {
         if (!this.enabled) {
             logger.debug('Google Ads: overgeslagen (niet geconfigureerd)');
             return null;
+        }
+
+        if (this.simulationMode) {
+            return this._createSimulatedCampaign(outage);
         }
 
         const city = getCityFromOutage(outage);
@@ -231,10 +242,40 @@ class GoogleAdsService {
     }
 
     /**
+     * Maak een gefingeerde campagne voor testdoeleinden.
+     */
+    async _createSimulatedCampaign(outage) {
+        const city = getCityFromOutage(outage);
+        const severity = outage._severity;
+        const campaignId = `SIM_${Math.floor(Math.random() * 1000000)}`;
+        const campaignName = `[SIMULATIE] Storing ${city} - ${new Date().toISOString().split('T')[0]}`;
+
+        logger.info(`🧪 GESTIMULEERD: Google Ads campaign — ${campaignName}`);
+
+        return {
+            campaignId,
+            campaignName,
+            campaignResourceName: `customers/123/campaigns/${campaignId}`,
+            budgetResourceName: `customers/123/campaignBudgets/${campaignId}`,
+            adGroupResourceName: `customers/123/adGroups/${campaignId}`,
+            budget: severity.googleBudget,
+            radiusKm: severity.radiusKm,
+            city,
+            platform: 'google',
+            simulated: true,
+        };
+    }
+
+    /**
      * Pauzeer een Google Ads campagne.
      */
     async pauseCampaign(campaignResourceName) {
         if (!this.enabled) return false;
+
+        if (this.simulationMode) {
+            logger.info(`🧪 GESTIMULEERD: Campagne gepauzeerd — ${campaignResourceName}`);
+            return true;
+        }
 
         try {
             await this.customer.campaigns.update([

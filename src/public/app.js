@@ -92,15 +92,14 @@ async function updateStatus() {
         mode === 'api' ? 'Via API' : mode === 'scrape' ? 'Via browser scraping' : 'API + fallback';
 
     // Services
-    updateServiceBadge('svcGoogle', data.services?.googleAds);
-    updateServiceBadge('svcMeta', data.services?.metaAds);
-}
+    document.getElementById('serv-google').className = `service-status ${data.services.google ? 'active' : 'inactive'}`;
+    document.getElementById('serv-meta').className = `service-status ${data.services.meta ? 'active' : 'inactive'}`;
 
-function updateServiceBadge(id, status) {
-    const el = document.getElementById(id);
-    const isActive = status === 'geconfigureerd';
-    el.textContent = isActive ? 'Actief' : 'Niet geconfigureerd';
-    el.className = `service-status ${isActive ? 'active' : 'inactive'}`;
+    // Simulation Banner
+    const banner = document.getElementById('simulation-banner');
+    if (banner) {
+        banner.style.display = data.simulationMode ? 'block' : 'none';
+    }
 }
 
 async function updateOutages() {
@@ -265,7 +264,9 @@ async function updateCampaigns() {
         <div class="campaign-item">
             <div class="campaign-top">
                 <div class="campaign-name">${escapeHtml(c.campaignName || c.outageId || 'Campagne')}</div>
-                <div class="campaign-platform ${c.platform || ''}">${c.platform || '?'}</div>
+                <div class="campaign-platform ${c.platform || ''} ${c.simulated ? 'simulated' : ''}">
+                    ${c.simulated ? '🧪 ' : ''}${c.platform || '?'}
+                </div>
             </div>
             <div class="campaign-info">
                 ${c.google?.budget ? `<span>💰 €${c.google.budget}/dag</span>` : ''}
@@ -299,10 +300,15 @@ async function updateLog() {
 
     let html = '';
     for (const e of entries) {
+        const isSimulated = e.type === 'simulation' || (e.data && e.data.simulated);
+        const time = formatTime(e.timestamp);
+        const typeClass = getLogBadgeClass(e.type);
+        const typeLabel = getLogBadgeLabel(e.type);
+
         html += `
         <div class="log-item">
-            <span class="log-time">${formatTime(e.timestamp)}</span>
-            <span class="log-badge ${getLogBadgeClass(e.type)}">${getLogBadgeLabel(e.type)}</span>
+            <span class="log-time">${time}</span>
+            <span class="log-badge ${typeClass} ${isSimulated ? 'simulated' : ''}">${typeLabel}</span>
             <span class="log-message">${escapeHtml(e.message)}</span>
         </div>`;
     }

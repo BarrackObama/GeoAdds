@@ -253,9 +253,11 @@ app.get('/api/status', (req, res) => {
         pollCount,
         lastPollTime,
         dataSourceMode: process.env.DATA_SOURCE_MODE || 'scrape',
+        simulationMode: process.env.SIMULATION_MODE === 'true',
         services: {
-            googleAds: googleAdsService.isEnabled() ? 'geconfigureerd' : 'niet geconfigureerd',
-            metaAds: metaAdsService.isEnabled() ? 'geconfigureerd' : 'niet geconfigureerd',
+            enabled: googleAdsService.isEnabled() || metaAdsService.isEnabled(),
+            google: googleAdsService.isEnabled(),
+            meta: metaAdsService.isEnabled(),
         },
         stats,
         timestamp: new Date().toISOString(),

@@ -10,15 +10,8 @@ import { getCityFromOutage, getProvinceFromOutage } from '../utils/postcode-util
  */
 class MetaAdsService {
     constructor() {
-        this.enabled = false;
-        this.adAccountId = null;
-        this.pageId = null;
-        this.AdAccount = null;
-        this.Campaign = null;
-        this.AdSet = null;
-        this.AdCreative = null;
-        this.Ad = null;
         this.landingPageUrl = process.env.LANDING_PAGE_URL || 'https://offgridcentrum.nl/thuisbatterij';
+        this.simulationMode = process.env.SIMULATION_MODE === 'true';
 
         this._initialize();
     }
@@ -29,6 +22,12 @@ class MetaAdsService {
         const accessToken = process.env.META_ACCESS_TOKEN;
         this.adAccountId = process.env.META_AD_ACCOUNT_ID;
         this.pageId = process.env.META_PAGE_ID;
+
+        if (this.simulationMode) {
+            this.enabled = true;
+            logger.info('🧪 Meta Ads service geïnitialiseerd in SIMULATIE MODUS');
+            return;
+        }
 
         if (!appId || !appSecret || !accessToken || !this.adAccountId) {
             logger.warn(
@@ -76,8 +75,11 @@ class MetaAdsService {
         }
 
         const city = getCityFromOutage(outage);
-        const severity = outage._severity;
         const campaignName = `[Storing] ${city} - ${new Date().toISOString().split('T')[0]}`;
+
+        if (this.simulationMode) {
+            return this._createSimulatedCampaign(outage);
+        }
 
         try {
             // 1. Maak Campaign aan
@@ -193,10 +195,40 @@ class MetaAdsService {
     }
 
     /**
+     * Maak een gefingeerde campagne voor testdoeleinden.
+     */
+    async _createSimulatedCampaign(outage) {
+        const city = getCityFromOutage(outage);
+        const severity = outage._severity;
+        const campaignId = `META_SIM_${Math.floor(Math.random() * 1000000)}`;
+        const campaignName = `[SIMULATIE] Storing ${city} - ${new Date().toISOString().split('T')[0]}`;
+
+        logger.info(`🧪 GESTIMULEERD: Meta Ads campaign — ${campaignName}`);
+
+        return {
+            campaignId,
+            adSetId: `SET_${campaignId}`,
+            creativeId: `CRT_${campaignId}`,
+            adId: `AD_${campaignId}`,
+            campaignName,
+            budget: severity.metaBudget,
+            radiusKm: severity.radiusKm,
+            city,
+            platform: 'meta',
+            simulated: true,
+        };
+    }
+
+    /**
      * Pauzeer een Meta Ads campagne.
      */
     async pauseCampaign(campaignId) {
         if (!this.enabled) return false;
+
+        if (this.simulationMode) {
+            logger.info(`🧪 GESTIMULEERD: Campagne gepauzeerd — ${campaignId}`);
+            return true;
+        }
 
         try {
             const campaign = new this.Campaign(campaignId);
