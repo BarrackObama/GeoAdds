@@ -1,6 +1,6 @@
 // ── Config ───────────────────────────────
 const API_BASE = '';  // same origin
-const REFRESH_INTERVAL = 15000; // 15 seconds
+const REFRESH_INTERVAL = 900000; // 15 minutes
 const NOTIFICATION_THRESHOLD = 500; // Households
 let notifiedOutages = new Set(); // Track notified IDs in memory
 
