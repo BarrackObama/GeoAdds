@@ -196,13 +196,13 @@ class OutageService {
         const households = outage.impact?.households || 0;
         let severity;
 
-        // Aangepaste drempels: < 1000 is nu Grote storing
+        // Aangepaste drempels voor betere nauwkeurigheid
         if (households >= 3000) {
             severity = SEVERITY.CRITICAL;
-        } else if (households >= 1) {
-            severity = SEVERITY.MAJOR; // Alles met impact is minimaal MAJOR
+        } else if (households >= 50) {
+            severity = SEVERITY.MAJOR;
         } else {
-            severity = SEVERITY.MINOR; // Alleen 0 or onbekende impact is MINOR
+            severity = SEVERITY.MINOR; // < 50 huishoudens is nu Klein
         }
 
         return {

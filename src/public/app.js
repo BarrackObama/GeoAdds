@@ -213,6 +213,10 @@ async function updateOutages() {
                 <div id="options-${o.id}" class="campaign-options" style="display: none;" onclick="event.stopPropagation()">
                     <div class="options-grid">
                         <div class="option-field">
+                            <label>Huishoudens</label>
+                            <input type="number" id="households-${o.id}" value="${o.impact?.households || 0}" min="1" max="10000">
+                        </div>
+                        <div class="option-field">
                             <label>Budget (€/dag)</label>
                             <input type="number" id="budget-${o.id}" value="${o._severity?.googleBudget || 15}" min="5" max="500">
                         </div>
@@ -283,12 +287,14 @@ async function updateOutages() {
  * Trigger manual campaign creation
  */
 async function createManualCampaign(outageId) {
+    const householdInput = document.getElementById(`households-${outageId}`);
     const budgetInput = document.getElementById(`budget-${outageId}`);
     const radiusInput = document.getElementById(`radius-${outageId}`);
     const durationInput = document.getElementById(`duration-${outageId}`);
     const platGoogle = document.getElementById(`plat-google-${outageId}`);
     const platMeta = document.getElementById(`plat-meta-${outageId}`);
 
+    const customHouseholds = householdInput ? parseInt(householdInput.value) : null;
     const customBudget = budgetInput ? parseFloat(budgetInput.value) : null;
     const customRadius = radiusInput ? parseFloat(radiusInput.value) : null;
     const customDurationDays = durationInput ? parseInt(durationInput.value) : null;
@@ -313,6 +319,7 @@ async function createManualCampaign(outageId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 outageId,
+                customHouseholds,
                 customBudget,
                 customRadius,
                 customDuration,

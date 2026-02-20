@@ -264,7 +264,7 @@ app.get('/api/log', (req, res) => {
  * Handle manual campaign creation
  */
 app.post('/api/campaigns/create', async (req, res) => {
-    const { outageId, customBudget, customRadius, customDuration, platforms } = req.body;
+    const { outageId, customHouseholds, customBudget, customRadius, customDuration, platforms } = req.body;
     if (!outageId) {
         return res.status(400).json({ error: 'outageId is verplicht' });
     }
@@ -277,7 +277,11 @@ app.post('/api/campaigns/create', async (req, res) => {
     const results = { google: null, meta: null };
     const errors = [];
 
-    addLogEntry('manual_campaign_trigger', `Handmatige campagne activatie gestart voor ${outage._city}`, { id: outageId });
+    const logEntryMsg = customHouseholds
+        ? `Handmatige campagne activatie gestart voor ${outage._city} (${customHouseholds} huishoudens)`
+        : `Handmatige campagne activatie gestart voor ${outage._city}`;
+
+    addLogEntry('manual_campaign_trigger', logEntryMsg, { id: outageId, households: customHouseholds });
 
     // Google Ads
     if (googleAdsService.isEnabled() && (!platforms || platforms.includes('google'))) {
@@ -360,14 +364,14 @@ function sanitizeOutage(outage) {
 // ──────────────────────────────────────
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '120000', 10);
+const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '900000', 10);
 const POLL_INTERVAL_MINUTES = Math.max(1, Math.round(POLL_INTERVAL_MS / 60000));
 
 app.listen(PORT, () => {
     logger.info('═══════════════════════════════════════════════════');
     logger.info('  🔋 Offgrid Storings-Tracker gestart');
     logger.info(`  📡 API: http://localhost:${PORT}`);
-    logger.info(`  ⏱️  Poll-interval: elke ${POLL_INTERVAL_MINUTES} minuut`);
+    logger.info(`  ⏱️  Poll-interval: elke ${POLL_INTERVAL_MINUTES} minuten`);
     logger.info(`  📊 Data-bron: ${process.env.DATA_SOURCE_MODE || 'scrape'}`);
     logger.info(`  🔍 Google Ads: ${googleAdsService.isEnabled() ? '✅ actief' : '❌ niet geconfigureerd'}`);
     logger.info(`  📘 Meta Ads: ${metaAdsService.isEnabled() ? '✅ actief' : '❌ niet geconfigureerd'}`);
