@@ -66,20 +66,25 @@ class MetaAdsService {
     /**
      * Maak een volledige Meta Ads campagne aan voor een storing.
      * @param {object} outage – verrijkte storingsdata
+     * @param {object} [options] – optionele overrides (budget, radius, duration)
      * @returns {object|null} Campagnedata of null bij fout
      */
-    async createCampaign(outage) {
+    async createCampaign(outage, options = {}) {
         if (!this.enabled) {
             logger.debug('Meta Ads: overgeslagen (niet geconfigureerd)');
             return null;
         }
 
-        const city = getCityFromOutage(outage);
-        const campaignName = `[Storing] ${city} - ${new Date().toISOString().split('T')[0]}`;
-
         if (this.simulationMode) {
-            return this._createSimulatedCampaign(outage);
+            return this._createSimulatedCampaign(outage, options);
         }
+
+        const city = getCityFromOutage(outage);
+        const budget = options.customBudget || outage._severity.metaBudget;
+        const radiusKm = options.customRadius || outage._severity.radiusKm;
+        const durationHours = options.customDuration || parseInt(process.env.CAMPAIGN_DURATION_HOURS || '72', 10);
+
+        const campaignName = `[Storing] ${city} - ${new Date().toISOString().split('T')[0]}`;
 
         try {
             // 1. Maak Campaign aan
@@ -95,7 +100,6 @@ class MetaAdsService {
 
             // 2. Maak Ad Set aan met targeting
             const coords = outage.location?.features?.geometry?.coordinates || [0, 0];
-            const durationHours = parseInt(process.env.CAMPAIGN_DURATION_HOURS || '72', 10);
             const endTime = new Date(Date.now() + durationHours * 60 * 60 * 1000);
 
             const targeting = {
@@ -104,7 +108,7 @@ class MetaAdsService {
                         {
                             latitude: coords[0],
                             longitude: coords[1],
-                            radius: severity.radiusKm,
+                            radius: radiusKm,
                             distance_unit: 'kilometer',
                         },
                     ],
@@ -127,7 +131,7 @@ class MetaAdsService {
             const adSet = await this.adAccount.createAdSet([], {
                 name: `AdSet - Stroomstoring ${city}`,
                 campaign_id: campaignId,
-                daily_budget: Math.round(severity.metaBudget * 100), // Budget in centen
+                daily_budget: Math.round(budget * 100), // Budget in centen
                 billing_event: 'IMPRESSIONS',
                 optimization_goal: 'LINK_CLICKS',
                 bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
@@ -138,7 +142,7 @@ class MetaAdsService {
             });
 
             const adSetId = adSet.id;
-            logger.info(`Meta Ads: Ad Set aangemaakt — radius ${severity.radiusKm}km rond ${city}`);
+            logger.info(`Meta Ads: Ad Set aangemaakt — radius ${radiusKm}km rond ${city} (€${budget}/dag)`);
 
             // 3. Maak Ad Creative
             const adCreative = await this.adAccount.createAdCreative([], {
@@ -178,8 +182,8 @@ class MetaAdsService {
                 creativeId,
                 adId: ad.id,
                 campaignName,
-                budget: severity.metaBudget,
-                radiusKm: severity.radiusKm,
+                budget: budget,
+                radiusKm: radiusKm,
                 city,
                 platform: 'meta',
             };
@@ -197,13 +201,14 @@ class MetaAdsService {
     /**
      * Maak een gefingeerde campagne voor testdoeleinden.
      */
-    async _createSimulatedCampaign(outage) {
+    async _createSimulatedCampaign(outage, options = {}) {
         const city = getCityFromOutage(outage);
-        const severity = outage._severity;
+        const budget = options.customBudget || outage._severity.metaBudget;
+        const radiusKm = options.customRadius || outage._severity.radiusKm;
         const campaignId = `META_SIM_${Math.floor(Math.random() * 1000000)}`;
         const campaignName = `[SIMULATIE] Storing ${city} - ${new Date().toISOString().split('T')[0]}`;
 
-        logger.info(`🧪 GESTIMULEERD: Meta Ads campaign — ${campaignName}`);
+        logger.info(`🧪 GESTIMULEERD: Meta Ads campaign — ${campaignName} (€${budget}, ${radiusKm}km)`);
 
         return {
             campaignId,
@@ -211,8 +216,8 @@ class MetaAdsService {
             creativeId: `CRT_${campaignId}`,
             adId: `AD_${campaignId}`,
             campaignName,
-            budget: severity.metaBudget,
-            radiusKm: severity.radiusKm,
+            budget: budget,
+            radiusKm: radiusKm,
             city,
             platform: 'meta',
             simulated: true,

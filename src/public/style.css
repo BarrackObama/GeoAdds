@@ -756,6 +756,87 @@ body::before {
     border: 1px solid #e2e8f0;
 }
 
+/* ── Campaign Options ────────────── */
+.campaign-options {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.option-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.option-field label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.option-field input {
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: white;
+}
+
+.option-field input:focus {
+    border-color: var(--accent-green);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(28, 107, 59, 0.1);
+}
+
+.platforms-selection {
+    display: flex;
+    gap: 16px;
+    padding: 4px 0;
+}
+
+.platform-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.platform-checkbox input {
+    width: 16px;
+    height: 16px;
+}
+
+.options-toggle {
+    background: none;
+    border: none;
+    color: var(--accent-green);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
+.options-toggle:hover {
+    color: #14532d;
+}
+
 /* ── Responsive ──────────────────── */
 @media (max-width: 600px) {
     .app {

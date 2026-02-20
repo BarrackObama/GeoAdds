@@ -67,39 +67,45 @@ class GoogleAdsService {
     /**
      * Maak een volledige Google Ads campagne aan voor een storing.
      * @param {object} outage – verrijkte storingsdata
+     * @param {object} [options] – optionele overrides (budget, radius)
      * @returns {object|null} Campagnedata of null bij fout
      */
-    async createCampaign(outage) {
+    async createCampaign(outage, options = {}) {
         if (!this.enabled) {
             logger.debug('Google Ads: overgeslagen (niet geconfigureerd)');
             return null;
         }
 
         if (this.simulationMode) {
-            return this._createSimulatedCampaign(outage);
+            return this._createSimulatedCampaign(outage, options);
         }
 
         const city = getCityFromOutage(outage);
         const province = getProvinceFromOutage(outage);
-        const severity = outage._severity;
-        const campaignName = `Storing ${city} - ${new Date().toISOString().split('T')[0]} - ${severity.label}`;
+
+        // Gebruik overrides indien aanwezig
+        const budget = options.customBudget || outage._severity.googleBudget;
+        const radiusKm = options.customRadius || outage._severity.radiusKm;
+        const durationHours = options.customDuration || 72;
+
+        const campaignName = `Storing ${city} - ${new Date().toISOString().split('T')[0]} - ${outage._severity.label}`;
 
         try {
             // 1. Maak CampaignBudget aan
             const budgetResult = await this.customer.campaignBudgets.create([
                 {
                     name: `Budget - ${campaignName}`,
-                    amount_micros: severity.googleBudget * 1_000_000, // Dagbudget in micros
+                    amount_micros: budget * 1_000_000, // Dagbudget in micros
                     delivery_method: 'STANDARD',
                     explicitly_shared: false,
                 },
             ]);
 
             const budgetResourceName = budgetResult.results[0].resource_name;
-            logger.info(`Google Ads: Budget aangemaakt — €${severity.googleBudget}/dag`);
+            logger.info(`Google Ads: Budget aangemaakt — €${budget}/dag`);
 
             // 2. Maak Campaign aan
-            const endDate = new Date(Date.now() + 72 * 60 * 60 * 1000);
+            const endDate = new Date(Date.now() + durationHours * 60 * 60 * 1000);
             const startDate = new Date();
 
             const campaignResult = await this.customer.campaigns.create([
@@ -134,7 +140,7 @@ class GoogleAdsService {
                                 latitude_in_micro_degrees: Math.round(coords[0] * 1_000_000),
                                 longitude_in_micro_degrees: Math.round(coords[1] * 1_000_000),
                             },
-                            radius: severity.radiusKm,
+                            radius: radiusKm,
                             radius_units: 'KILOMETERS',
                             address: {
                                 city_name: city,
@@ -144,7 +150,7 @@ class GoogleAdsService {
                         },
                     },
                 ]);
-                logger.info(`Google Ads: Geo-targeting ingesteld — ${severity.radiusKm}km rond ${city}`);
+                logger.info(`Google Ads: Geo-targeting ingesteld — ${radiusKm}km rond ${city}`);
             }
 
             // 4. Maak Ad Group aan
@@ -223,8 +229,8 @@ class GoogleAdsService {
                 campaignResourceName,
                 budgetResourceName,
                 adGroupResourceName,
-                budget: severity.googleBudget,
-                radiusKm: severity.radiusKm,
+                budget: budget,
+                radiusKm: radiusKm,
                 city,
                 platform: 'google',
             };
@@ -244,13 +250,14 @@ class GoogleAdsService {
     /**
      * Maak een gefingeerde campagne voor testdoeleinden.
      */
-    async _createSimulatedCampaign(outage) {
+    async _createSimulatedCampaign(outage, options = {}) {
         const city = getCityFromOutage(outage);
-        const severity = outage._severity;
+        const budget = options.customBudget || outage._severity.googleBudget;
+        const radiusKm = options.customRadius || outage._severity.radiusKm;
         const campaignId = `SIM_${Math.floor(Math.random() * 1000000)}`;
         const campaignName = `[SIMULATIE] Storing ${city} - ${new Date().toISOString().split('T')[0]}`;
 
-        logger.info(`🧪 GESTIMULEERD: Google Ads campaign — ${campaignName}`);
+        logger.info(`🧪 GESTIMULEERD: Google Ads campaign — ${campaignName} (€${budget}, ${radiusKm}km)`);
 
         return {
             campaignId,
@@ -258,8 +265,8 @@ class GoogleAdsService {
             campaignResourceName: `customers/123/campaigns/${campaignId}`,
             budgetResourceName: `customers/123/campaignBudgets/${campaignId}`,
             adGroupResourceName: `customers/123/adGroups/${campaignId}`,
-            budget: severity.googleBudget,
-            radiusKm: severity.radiusKm,
+            budget: budget,
+            radiusKm: radiusKm,
             city,
             platform: 'google',
             simulated: true,

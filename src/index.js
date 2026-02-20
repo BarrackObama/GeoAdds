@@ -292,7 +292,7 @@ app.get('/api/log', (req, res) => {
  * Handle manual campaign creation
  */
 app.post('/api/campaigns/create', async (req, res) => {
-    const { outageId } = req.body;
+    const { outageId, customBudget, customRadius, customDuration, platforms } = req.body;
     if (!outageId) {
         return res.status(400).json({ error: 'outageId is verplicht' });
     }
@@ -308,15 +308,19 @@ app.post('/api/campaigns/create', async (req, res) => {
     addLogEntry('manual_campaign_trigger', `Handmatige campagne activatie gestart voor ${outage._city}`, { id: outageId });
 
     // Google Ads
-    if (googleAdsService.isEnabled()) {
-        const requestedBudget = outage._severity?.googleBudget || 0;
+    if (googleAdsService.isEnabled() && (!platforms || platforms.includes('google'))) {
+        const requestedBudget = customBudget || outage._severity?.googleBudget || 0;
         if (outageService.canCreateNewCampaign('google', requestedBudget)) {
             try {
-                const googleCampaign = await googleAdsService.createCampaign(outage);
+                const googleCampaign = await googleAdsService.createCampaign(outage, {
+                    customBudget: customBudget,
+                    customRadius: customRadius,
+                    customDuration: customDuration
+                });
                 if (googleCampaign) {
                     outageService.registerCampaign(outageId, 'google', googleCampaign);
                     results.google = googleCampaign;
-                    addLogEntry('campaign_created', `Google Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId });
+                    addLogEntry('campaign_created', `Google Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId, simulated: googleCampaign.simulated });
                 }
             } catch (err) {
                 errors.push(`Google Ads: ${err.message}`);
@@ -329,15 +333,19 @@ app.post('/api/campaigns/create', async (req, res) => {
     }
 
     // Meta Ads
-    if (metaAdsService.isEnabled()) {
-        const requestedBudget = outage._severity?.metaBudget || 0;
+    if (metaAdsService.isEnabled() && (!platforms || platforms.includes('meta'))) {
+        const requestedBudget = customBudget || outage._severity?.metaBudget || 0;
         if (outageService.canCreateNewCampaign('meta', requestedBudget)) {
             try {
-                const metaCampaign = await metaAdsService.createCampaign(outage);
+                const metaCampaign = await metaAdsService.createCampaign(outage, {
+                    customBudget: customBudget,
+                    customRadius: customRadius,
+                    customDuration: customDuration
+                });
                 if (metaCampaign) {
                     outageService.registerCampaign(outageId, 'meta', metaCampaign);
                     results.meta = metaCampaign;
-                    addLogEntry('campaign_created', `Meta Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId });
+                    addLogEntry('campaign_created', `Meta Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId, simulated: metaCampaign.simulated });
                 }
             } catch (err) {
                 errors.push(`Meta Ads: ${err.message}`);

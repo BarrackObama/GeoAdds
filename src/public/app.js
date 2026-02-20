@@ -165,6 +165,34 @@ async function updateOutages() {
                     <button class="btn btn-action" onclick="event.stopPropagation(); createManualCampaign('${o.id}')">
                         🚀 Start Campagne
                     </button>
+                    <button class="options-toggle" onclick="event.stopPropagation(); toggleOptions('${o.id}')">
+                        Instellingen aanpassen
+                    </button>
+                </div>
+                
+                <div id="options-${o.id}" class="campaign-options" style="display: none;" onclick="event.stopPropagation()">
+                    <div class="options-grid">
+                        <div class="option-field">
+                            <label>Budget (€/dag)</label>
+                            <input type="number" id="budget-${o.id}" value="${o._severity?.googleBudget || 15}" min="5" max="500">
+                        </div>
+                        <div class="option-field">
+                            <label>Radius (km)</label>
+                            <input type="number" id="radius-${o.id}" value="${o._severity?.radiusKm || 5}" min="1" max="50">
+                        </div>
+                        <div class="option-field">
+                            <label>Duur (uur)</label>
+                            <input type="number" id="duration-${o.id}" value="72" min="1" max="168">
+                        </div>
+                    </div>
+                    <div class="platforms-selection">
+                        <label class="platform-checkbox">
+                            <input type="checkbox" id="plat-google-${o.id}" checked> Google Ads
+                        </label>
+                        <label class="platform-checkbox">
+                            <input type="checkbox" id="plat-meta-${o.id}" checked> Meta Ads
+                        </label>
+                    </div>
                 </div>
                 ${street ? `
                     <div class="detail-row">
@@ -215,7 +243,26 @@ async function updateOutages() {
  * Trigger manual campaign creation
  */
 async function createManualCampaign(outageId) {
-    if (!confirm('Weet je zeker dat je handmatig een campagne wilt starten voor deze storing?')) {
+    const budgetInput = document.getElementById(`budget-${outageId}`);
+    const radiusInput = document.getElementById(`radius-${outageId}`);
+    const durationInput = document.getElementById(`duration-${outageId}`);
+    const platGoogle = document.getElementById(`plat-google-${outageId}`);
+    const platMeta = document.getElementById(`plat-meta-${outageId}`);
+
+    const customBudget = budgetInput ? parseFloat(budgetInput.value) : null;
+    const customRadius = radiusInput ? parseFloat(radiusInput.value) : null;
+    const customDuration = durationInput ? parseInt(durationInput.value) : null;
+
+    const platforms = [];
+    if (platGoogle && platGoogle.checked) platforms.push('google');
+    if (platMeta && platMeta.checked) platforms.push('meta');
+
+    if (platforms.length === 0) {
+        alert('Selecteer minimaal één platform (Google of Meta).');
+        return;
+    }
+
+    if (!confirm('Weet je zeker dat je handmatig een campagne wilt starten met deze instellingen?')) {
         return;
     }
 
@@ -223,14 +270,20 @@ async function createManualCampaign(outageId) {
         const res = await fetch('/api/campaigns/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ outageId }),
+            body: JSON.stringify({
+                outageId,
+                customBudget,
+                customRadius,
+                customDuration,
+                platforms
+            }),
         });
 
         const data = await res.json();
         if (!res.ok) {
             alert(`Fout: ${data.error || 'Onbekende fout'}\n${data.details ? data.details.join('\n') : ''}`);
         } else {
-            alert(data.message);
+            alert(data.message || 'Campagne succesvol gestart!');
             refreshAll();
         }
     } catch (err) {
@@ -323,6 +376,13 @@ function escapeHtml(str) {
 
 function toggleOutageDetail(el) {
     el.classList.toggle('expanded');
+}
+
+function toggleOptions(outageId) {
+    const el = document.getElementById(`options-${outageId}`);
+    if (el) {
+        el.style.display = (el.style.display === 'none') ? 'flex' : 'none';
+    }
 }
 
 // ── Poll trigger ─────────────────────────
