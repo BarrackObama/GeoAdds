@@ -375,11 +375,19 @@ class ScraperService {
                     end: raw.period?.end || raw.endTime || raw.end || '',
                     expectedEnd: raw.period?.expectedEnd || raw.expectedEnd || '',
                 },
-                impact: {
-                    households: raw.impact?.households || raw.aantalGetroffen || raw.households || 0,
-                    max: raw.impact?.max || false,
-                    min: raw.impact?.min || false,
-                },
+                impact: (() => {
+                    const pcString = raw.location?.features?.properties?.postalCode || raw.postcode || raw.postalCode || '';
+                    const pcCount = pcString.split(';').filter(Boolean).length;
+
+                    // Nieuwe logica: 5 huishoudens per postcode voor hogere nauwkeurigheid
+                    const calculatedHouseholds = pcCount > 0 ? pcCount * 5 : (raw.impact?.households || raw.aantalGetroffen || raw.households || 0);
+
+                    return {
+                        households: calculatedHouseholds,
+                        max: raw.impact?.max || false,
+                        min: raw.impact?.min || false,
+                    };
+                })(),
                 _affectedLabel: raw._private_?.Affected || '',
                 location: {
                     features: {

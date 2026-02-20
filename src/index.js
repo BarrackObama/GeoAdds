@@ -264,7 +264,7 @@ app.get('/api/log', (req, res) => {
  * Handle manual campaign creation
  */
 app.post('/api/campaigns/create', async (req, res) => {
-    const { outageId, customHouseholds, customBudget, customRadius, customDuration, platforms } = req.body;
+    const { outageId, customBudget, customRadius, customDuration, platforms } = req.body;
     if (!outageId) {
         return res.status(400).json({ error: 'outageId is verplicht' });
     }
@@ -277,11 +277,7 @@ app.post('/api/campaigns/create', async (req, res) => {
     const results = { google: null, meta: null };
     const errors = [];
 
-    const logEntryMsg = customHouseholds
-        ? `Handmatige campagne activatie gestart voor ${outage._city} (${customHouseholds} huishoudens)`
-        : `Handmatige campagne activatie gestart voor ${outage._city}`;
-
-    addLogEntry('manual_campaign_trigger', logEntryMsg, { id: outageId, households: customHouseholds });
+    addLogEntry('manual_campaign_trigger', `Handmatige campagne activatie gestart voor ${outage._city}`, { id: outageId });
 
     // Google Ads
     if (googleAdsService.isEnabled() && (!platforms || platforms.includes('google'))) {
