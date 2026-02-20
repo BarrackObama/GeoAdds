@@ -23,23 +23,11 @@ const googleAdsService = new GoogleAdsService();
 const metaAdsService = new MetaAdsService();
 
 // ──────────────────────────────────────
-//  Event log (in-memory, max 200)
+//  Event log helper
 // ──────────────────────────────────────
 
-const MAX_LOG_ENTRIES = 200;
-const eventLog = [];
-
 function addLogEntry(type, message, data = {}) {
-    const entry = {
-        timestamp: new Date().toISOString(),
-        type,
-        message,
-        data,
-    };
-    eventLog.unshift(entry); // Nieuwste eerst
-    if (eventLog.length > MAX_LOG_ENTRIES) {
-        eventLog.length = MAX_LOG_ENTRIES;
-    }
+    outageService.addEvent(type, message, data);
 }
 
 // ──────────────────────────────────────
@@ -66,27 +54,51 @@ async function pollOutages() {
 
         // 1. Haal verse storingsdata op
         const freshOutages = await scraperService.fetchOutages();
+
+        // null = fout bij ophalen — behoud huidige state
+        if (freshOutages === null) {
+            logger.warn('⚠️  Storingsdata kon niet opgehaald worden — huidige state behouden');
+            addLogEntry('poll_error', 'Data ophalen mislukt — state behouden');
+            const duration = Date.now() - startTime;
+            lastPollTime = new Date().toISOString();
+            return { poll: pollCount, duration: `${duration}ms`, skipped: true, reason: 'fetch_failed' };
+        }
+
         addLogEntry('scrape_result', `${freshOutages.length} storingen opgehaald`);
 
         // 2. Verwerk en vergelijk met bekende staat
         const { newOutages, resolvedOutages, updatedOutages } =
             outageService.processOutages(freshOutages);
 
-        // 3. Voor elke NIEUWE storing → maak campagnes aan
+        // 3. Voor elke NIEUWE storing → maak campagnes aan (alleen elektriciteit)
         for (const outage of newOutages) {
-            addLogEntry('new_outage', `Nieuwe storing in ${outage._city}`, {
+            const isGas = outage.network?.type === 'gas';
+            addLogEntry('new_outage', `Nieuwe storing in ${outage._city}${isGas ? ' (gas)' : ''}`, {
                 id: outage.id,
                 city: outage._city,
                 severity: outage._severity?.label,
                 households: outage.impact?.households,
+                networkType: outage.network?.type,
             });
+
+            // Sla campagne-aanmaak over voor gas-storingen
+            if (isGas) {
+                logger.info(`⛽ Gas-storing in ${outage._city} — geen campagne aangemaakt`);
+                addLogEntry('new_outage', `Gas-storing overgeslagen voor campagnes: ${outage._city}`, { id: outage.id });
+                continue;
+            }
 
             // Google Ads campagne
             try {
-                const googleCampaign = await googleAdsService.createCampaign(outage);
-                if (googleCampaign) {
-                    outageService.registerCampaign(outage.id, 'google', googleCampaign);
-                    addLogEntry('campaign_created', `Google Ads campagne aangemaakt voor ${outage._city}`, googleCampaign);
+                const requestedBudget = outage._severity?.googleBudget || 0;
+                if (outageService.canCreateNewCampaign('google', requestedBudget)) {
+                    const googleCampaign = await googleAdsService.createCampaign(outage);
+                    if (googleCampaign) {
+                        outageService.registerCampaign(outage.id, 'google', googleCampaign);
+                        addLogEntry('campaign_created', `Google Ads campagne aangemaakt voor ${outage._city}`, googleCampaign);
+                    }
+                } else {
+                    addLogEntry('campaign_skipped', `Google Ads overgeslagen (budget limiet) voor ${outage._city}`, { id: outage.id });
                 }
             } catch (error) {
                 logger.error(`Fout bij Google Ads campagne voor ${outage.id}: ${error.message}`);
@@ -95,10 +107,15 @@ async function pollOutages() {
 
             // Meta Ads campagne
             try {
-                const metaCampaign = await metaAdsService.createCampaign(outage);
-                if (metaCampaign) {
-                    outageService.registerCampaign(outage.id, 'meta', metaCampaign);
-                    addLogEntry('campaign_created', `Meta Ads campagne aangemaakt voor ${outage._city}`, metaCampaign);
+                const requestedBudget = outage._severity?.metaBudget || 0;
+                if (outageService.canCreateNewCampaign('meta', requestedBudget)) {
+                    const metaCampaign = await metaAdsService.createCampaign(outage);
+                    if (metaCampaign) {
+                        outageService.registerCampaign(outage.id, 'meta', metaCampaign);
+                        addLogEntry('campaign_created', `Meta Ads campagne aangemaakt voor ${outage._city}`, metaCampaign);
+                    }
+                } else {
+                    addLogEntry('campaign_skipped', `Meta Ads overgeslagen (budget limiet) voor ${outage._city}`, { id: outage.id });
                 }
             } catch (error) {
                 logger.error(`Fout bij Meta Ads campagne voor ${outage.id}: ${error.message}`);
@@ -106,13 +123,42 @@ async function pollOutages() {
             }
         }
 
-        // 4. Log opgeloste storingen (campagnes lopen nog 72u door)
+        // 4. Opgeloste storingen → direct campagnes pauzeren
         for (const outage of resolvedOutages) {
             addLogEntry('outage_resolved', `Storing opgelost in ${outage._city || 'Onbekend'}`, {
                 id: outage.id,
-                note: 'Campagnes draaien nog door tot de einddatum',
             });
+
+            // Pauzeer actieve campagnes voor deze storing
+            const campaigns = outageService.getCampaignsForOutage(outage.id);
+            if (campaigns) {
+                if (campaigns.google?.status === 'active' && campaigns.google.campaignResourceName) {
+                    try {
+                        const success = await googleAdsService.pauseCampaign(campaigns.google.campaignResourceName);
+                        if (success) {
+                            outageService.markCampaignPaused(outage.id, 'google');
+                            addLogEntry('campaign_paused', `Google Ads campagne gepauzeerd (storing opgelost)`, { outageId: outage.id });
+                        }
+                    } catch (e) {
+                        logger.error(`Fout bij pauzeren Google campagne voor ${outage.id}: ${e.message}`);
+                    }
+                }
+                if (campaigns.meta?.status === 'active' && campaigns.meta.campaignId) {
+                    try {
+                        const success = await metaAdsService.pauseCampaign(campaigns.meta.campaignId);
+                        if (success) {
+                            outageService.markCampaignPaused(outage.id, 'meta');
+                            addLogEntry('campaign_paused', `Meta Ads campagne gepauzeerd (storing opgelost)`, { outageId: outage.id });
+                        }
+                    } catch (e) {
+                        logger.error(`Fout bij pauzeren Meta campagne voor ${outage.id}: ${e.message}`);
+                    }
+                }
+            }
         }
+
+        // 5. Persisteer state naar disk
+        outageService.persistState();
 
         const duration = Date.now() - startTime;
         lastPollTime = new Date().toISOString();
@@ -233,11 +279,79 @@ app.get('/api/campaigns', (req, res) => {
 
 // Event log
 app.get('/api/log', (req, res) => {
-    const limit = Math.min(parseInt(req.query.limit || '50', 10), MAX_LOG_ENTRIES);
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
     res.json({
-        total: eventLog.length,
-        entries: eventLog.slice(0, limit),
+        total: outageService.eventLog.length,
+        entries: outageService.eventLog.slice(0, limit),
     });
+});
+
+/**
+ * Handle manual campaign creation
+ */
+app.post('/api/campaigns/create', async (req, res) => {
+    const { outageId } = req.body;
+    if (!outageId) {
+        return res.status(400).json({ error: 'outageId is verplicht' });
+    }
+
+    const outage = outageService.activeOutages.get(outageId);
+    if (!outage) {
+        return res.status(404).json({ error: 'Storing niet gevonden of al opgelost' });
+    }
+
+    const results = { google: null, meta: null };
+    const errors = [];
+
+    addLogEntry('manual_campaign_trigger', `Handmatige campagne activatie gestart voor ${outage._city}`, { id: outageId });
+
+    // Google Ads
+    if (googleAdsService.isEnabled()) {
+        const requestedBudget = outage._severity?.googleBudget || 0;
+        if (outageService.canCreateNewCampaign('google', requestedBudget)) {
+            try {
+                const googleCampaign = await googleAdsService.createCampaign(outage);
+                if (googleCampaign) {
+                    outageService.registerCampaign(outageId, 'google', googleCampaign);
+                    results.google = googleCampaign;
+                    addLogEntry('campaign_created', `Google Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId });
+                }
+            } catch (err) {
+                errors.push(`Google Ads: ${err.message}`);
+                addLogEntry('campaign_error', `Google Ads fout (handmatig) voor ${outage._city}: ${err.message}`);
+            }
+        } else {
+            errors.push('Google Ads: Dagelijks budget limiet bereikt');
+            addLogEntry('campaign_skipped', `Google Ads overgeslagen (budget limiet/handmatig) voor ${outage._city}`, { id: outageId });
+        }
+    }
+
+    // Meta Ads
+    if (metaAdsService.isEnabled()) {
+        const requestedBudget = outage._severity?.metaBudget || 0;
+        if (outageService.canCreateNewCampaign('meta', requestedBudget)) {
+            try {
+                const metaCampaign = await metaAdsService.createCampaign(outage);
+                if (metaCampaign) {
+                    outageService.registerCampaign(outageId, 'meta', metaCampaign);
+                    results.meta = metaCampaign;
+                    addLogEntry('campaign_created', `Meta Ads campagne handmatig aangemaakt voor ${outage._city}`, { id: outageId });
+                }
+            } catch (err) {
+                errors.push(`Meta Ads: ${err.message}`);
+                addLogEntry('campaign_error', `Meta Ads fout (handmatig) voor ${outage._city}: ${err.message}`);
+            }
+        } else {
+            errors.push('Meta Ads: Dagelijks budget limiet bereikt');
+            addLogEntry('campaign_skipped', `Meta Ads overgeslagen (budget limiet/handmatig) voor ${outage._city}`, { id: outageId });
+        }
+    }
+
+    if (!results.google && !results.meta && errors.length > 0) {
+        return res.status(500).json({ error: 'Campagne aanmaak mislukt', details: errors });
+    }
+
+    res.json({ message: 'Campagne(s) succesvol aangemaakt', results });
 });
 
 // Handmatige poll trigger

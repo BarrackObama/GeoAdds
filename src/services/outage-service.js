@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { getCityFromOutage, getProvinceFromOutage } from '../utils/postcode-utils.js';
+import { save, load } from '../utils/persistence.js';
 
 /**
  * OutageService — Storingsdetectie, classificatie en state management
@@ -45,12 +46,75 @@ class OutageService {
         this.resolvedOutages = new Map();
         // Campagne-koppelingen: Map<outageId, { google: {}, meta: {} }>
         this.campaigns = new Map();
+        // Event log (max 200 entries)
+        this.eventLog = [];
 
         this.campaignDurationHours = parseInt(process.env.CAMPAIGN_DURATION_HOURS || '72', 10);
         this.maxDailyBudgetGoogle = parseFloat(process.env.MAX_DAILY_BUDGET_GOOGLE || '150');
         this.maxDailyBudgetMeta = parseFloat(process.env.MAX_DAILY_BUDGET_META || '150');
+        this.totalMaxDailyBudgetGoogle = parseFloat(process.env.TOTAL_MAX_DAILY_BUDGET_GOOGLE || '500');
+        this.totalMaxDailyBudgetMeta = parseFloat(process.env.TOTAL_MAX_DAILY_BUDGET_META || '500');
+
+        // Laad opgeslagen state
+        this._loadState();
 
         logger.info('OutageService geïnitialiseerd');
+    }
+
+    /**
+     * Voeg een event toe aan de log.
+     */
+    addEvent(type, message, data = {}) {
+        const entry = {
+            timestamp: new Date().toISOString(),
+            type,
+            message,
+            data,
+        };
+        this.eventLog.unshift(entry);
+        if (this.eventLog.length > 200) {
+            this.eventLog.length = 200;
+        }
+        return entry;
+    }
+
+    /**
+     * Laad opgeslagen state van disk (overleeft herstart).
+     */
+    _loadState() {
+        const savedActive = load('active_outages', []);
+        const savedResolved = load('resolved_outages', []);
+        const savedCampaigns = load('campaigns', []);
+        this.eventLog = load('event_log', []);
+
+        for (const o of savedActive) {
+            this.activeOutages.set(o.id, o);
+        }
+        for (const o of savedResolved) {
+            this.resolvedOutages.set(o.id, o);
+        }
+        for (const c of savedCampaigns) {
+            this.campaigns.set(c.outageId, c.platforms);
+        }
+
+        if (savedActive.length > 0 || savedCampaigns.length > 0 || this.eventLog.length > 0) {
+            logger.info(`State geladen: ${savedActive.length} actieve storingen, ${savedCampaigns.length} campagnes, ${this.eventLog.length} logs`);
+        }
+    }
+
+    /**
+     * Sla huidige state op naar disk.
+     */
+    _saveState() {
+        save('active_outages', Array.from(this.activeOutages.values()));
+        save('resolved_outages', Array.from(this.resolvedOutages.values()));
+        save('event_log', this.eventLog);
+
+        const campaignData = [];
+        for (const [outageId, platforms] of this.campaigns) {
+            campaignData.push({ outageId, platforms });
+        }
+        save('campaigns', campaignData);
     }
 
     /**
@@ -119,18 +183,26 @@ class OutageService {
     }
 
     /**
+     * Persisteer state na verwerking (aangeroepen vanuit pollOutages).
+     */
+    persistState() {
+        this._saveState();
+    }
+
+    /**
      * Classificeer de ernst van een storing op basis van getroffen huishoudens.
      */
     _classifySeverity(outage) {
         const households = outage.impact?.households || 0;
         let severity;
 
+        // Aangepaste drempels: < 1000 is nu Grote storing
         if (households >= 3000) {
             severity = SEVERITY.CRITICAL;
-        } else if (households >= 1000) {
-            severity = SEVERITY.MAJOR;
+        } else if (households >= 1) {
+            severity = SEVERITY.MAJOR; // Alles met impact is minimaal MAJOR
         } else {
-            severity = SEVERITY.MINOR;
+            severity = SEVERITY.MINOR; // Alleen 0 or onbekende impact is MINOR
         }
 
         return {
@@ -171,14 +243,44 @@ class OutageService {
         if (!this.campaigns.has(outageId)) {
             this.campaigns.set(outageId, { google: null, meta: null });
         }
+
+        const outage = this.activeOutages.get(outageId);
+        const budget = outage?._severity?.[`${platform}Budget`] || 0;
+
         this.campaigns.get(outageId)[platform] = {
             ...campaignData,
+            budget,
             createdAt: new Date().toISOString(),
             expiresAt: new Date(
                 Date.now() + this.campaignDurationHours * 60 * 60 * 1000
             ).toISOString(),
             status: 'active',
         };
+    }
+
+    /**
+     * Controleer of er nog budget is voor een nieuwe campagne op een bepaald platform.
+     */
+    canCreateNewCampaign(platform, requestedBudget) {
+        const now = Date.now();
+        const oneDayAgo = now - 24 * 60 * 60 * 1000;
+
+        let totalSpent = 0;
+        const maxTotalBudget = platform === 'google' ? this.totalMaxDailyBudgetGoogle : this.totalMaxDailyBudgetMeta;
+
+        for (const [outageId, platforms] of this.campaigns) {
+            const campaign = platforms[platform];
+            // Getal is "budget" dat we bij registerCampaign hebben opgeslagen
+            if (campaign && campaign.status === 'active' && new Date(campaign.createdAt).getTime() > oneDayAgo) {
+                totalSpent += campaign.budget || 0;
+            }
+        }
+
+        const canAfford = (totalSpent + requestedBudget) <= maxTotalBudget;
+        if (!canAfford) {
+            logger.warn(`💰 Budget limiet bereikt voor ${platform}: verbruikt €${totalSpent}, gevraagd €${requestedBudget}, limiet €${maxTotalBudget}`);
+        }
+        return canAfford;
     }
 
     /**
@@ -211,6 +313,13 @@ class OutageService {
         if (campaigns && campaigns[platform]) {
             campaigns[platform].status = 'paused';
         }
+    }
+
+    /**
+     * Geef campagne-info voor een specifieke storing.
+     */
+    getCampaignsForOutage(outageId) {
+        return this.campaigns.get(outageId) || null;
     }
 
     /**

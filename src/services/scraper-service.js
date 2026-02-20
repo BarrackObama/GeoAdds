@@ -13,6 +13,7 @@ class ScraperService {
     constructor() {
         this.mode = process.env.DATA_SOURCE_MODE || 'scrape';
         this.apiBaseUrl = 'https://energieonderbrekingen.nl/api/v2';
+        this.publicApiUrl = 'https://energieonderbrekingen.nl/api/disruptions';
         this.authUrl = process.env.OUTAGE_AUTH_URL || 'https://energieonderbrekingen.eu.auth0.com/oauth/token';
         this.clientId = process.env.OUTAGE_API_CLIENT_ID;
         this.clientSecret = process.env.OUTAGE_API_CLIENT_SECRET;
@@ -25,7 +26,32 @@ class ScraperService {
         // Playwright browser instance (lazy init)
         this._browser = null;
 
+        // Retry configuratie
+        this.maxRetries = 3;
+        this.retryBaseDelayMs = 2000;
+
         logger.info(`ScraperService geïnitialiseerd in modus: ${this.mode}`);
+    }
+
+    // ──────────────────────────────────────
+    //  Retry helper — exponential backoff
+    // ──────────────────────────────────────
+
+    async _withRetry(fn, label) {
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                const delay = this.retryBaseDelayMs * Math.pow(2, attempt - 1);
+                if (attempt < this.maxRetries) {
+                    logger.warn(`${label}: poging ${attempt}/${this.maxRetries} mislukt (${error.message}), retry in ${delay}ms...`);
+                    await new Promise(r => setTimeout(r, delay));
+                } else {
+                    logger.error(`${label}: alle ${this.maxRetries} pogingen mislukt — ${error.message}`);
+                    throw error;
+                }
+            }
+        }
     }
 
     // ──────────────────────────────────────
@@ -36,10 +62,15 @@ class ScraperService {
         try {
             switch (this.mode) {
                 case 'api':
-                    return await this._fetchViaApi();
+                    return await this._withRetry(() => this._fetchViaApi(), 'API');
 
-                case 'scrape':
-                    return await this._fetchViaScraping();
+                case 'scrape': {
+                    // Probeer eerst directe API (sneller), val terug op Playwright
+                    const directResult = await this._fetchDirectApi();
+                    if (directResult && directResult.length > 0) return directResult;
+                    logger.warn('Directe API leverde geen data, val terug op Playwright scraping');
+                    return await this._withRetry(() => this._fetchViaScraping(), 'Scraper');
+                }
 
                 case 'hybrid':
                     return await this._fetchHybrid();
@@ -49,8 +80,68 @@ class ScraperService {
                     return await this._fetchViaScraping();
             }
         } catch (error) {
-            logger.error('Fout bij ophalen storingsdata:', error);
-            return [];
+            logger.error('Fout bij ophalen storingsdata (alle pogingen mislukt):', error);
+            return null; // null = fout, [] = geen storingen
+        }
+    }
+
+    // ──────────────────────────────
+    //  Directe publieke API (geen auth)
+    // ──────────────────────────────
+
+    async _fetchDirectApi() {
+        try {
+            const allDisruptions = [];
+            const pageSize = 100;
+            let offset = 0;
+            let hasMore = true;
+
+            while (hasMore) {
+                const params = new URLSearchParams({
+                    limit: pageSize.toString(),
+                    offset: offset.toString(),
+                    resolved: 'no',
+                });
+                // Voeg DSO filters toe
+                ['Enexis', 'Liander', 'Stedin'].forEach(dso => params.append('dso[]', dso));
+                ['electricity', 'gas'].forEach(net => params.append('network[]', net));
+
+                const url = `${this.publicApiUrl}?${params.toString()}`;
+                logger.debug(`Directe API: ophalen pagina offset=${offset}...`);
+
+                const response = await axios.get(url, {
+                    headers: {
+                        Accept: 'application/json',
+                        'User-Agent': 'OffgridStoringsTracker/1.0',
+                    },
+                    timeout: 15000,
+                });
+
+                const data = response.data;
+                const items = Array.isArray(data)
+                    ? data
+                    : data?.disruptions || data?.data || data?.items || data?.disruptionOccurrences || [];
+
+                allDisruptions.push(...items);
+
+                // Stop als we minder dan pageSize ontvangen (= laatste pagina)
+                if (items.length < pageSize) {
+                    hasMore = false;
+                } else {
+                    offset += pageSize;
+                    // Veiligheidsgrens: max 500 storingen
+                    if (offset >= 500) {
+                        logger.warn('Directe API: veiligheidsgrens van 500 bereikt');
+                        hasMore = false;
+                    }
+                }
+            }
+
+            logger.info(`Directe API: ${allDisruptions.length} storingen opgehaald (alle pagina\'s)`);
+            return allDisruptions.map(d => this._normalizeOutage(d));
+        } catch (error) {
+            logger.warn(`Directe API mislukt: ${error.message}`);
+            return null;
         }
     }
 
@@ -286,7 +377,10 @@ class ScraperService {
                 },
                 impact: {
                     households: raw.impact?.households || raw.aantalGetroffen || raw.households || 0,
+                    max: raw.impact?.max || false,
+                    min: raw.impact?.min || false,
                 },
+                _affectedLabel: raw._private_?.Affected || '',
                 location: {
                     features: {
                         geometry: {

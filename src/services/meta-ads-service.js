@@ -93,7 +93,8 @@ class MetaAdsService {
 
             // 2. Maak Ad Set aan met targeting
             const coords = outage.location?.features?.geometry?.coordinates || [0, 0];
-            const endTime = new Date(Date.now() + 72 * 60 * 60 * 1000);
+            const durationHours = parseInt(process.env.CAMPAIGN_DURATION_HOURS || '72', 10);
+            const endTime = new Date(Date.now() + durationHours * 60 * 60 * 1000);
 
             const targeting = {
                 geo_locations: {
