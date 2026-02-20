@@ -92,8 +92,18 @@ async function updateStatus() {
         mode === 'api' ? 'Via API' : mode === 'scrape' ? 'Via browser scraping' : 'API + fallback';
 
     // Services
-    document.getElementById('serv-google').className = `service-status ${data.services.google ? 'active' : 'inactive'}`;
-    document.getElementById('serv-meta').className = `service-status ${data.services.meta ? 'active' : 'inactive'}`;
+    const gSvc = document.getElementById('svcGoogle');
+    const mSvc = document.getElementById('svcMeta');
+
+    if (gSvc) {
+        gSvc.className = `service-status ${data.services.google ? 'active' : 'inactive'}`;
+        gSvc.textContent = data.services.google ? 'Actief' : 'Niet geconfigureerd';
+    }
+
+    if (mSvc) {
+        mSvc.className = `service-status ${data.services.meta ? 'active' : 'inactive'}`;
+        mSvc.textContent = data.services.meta ? 'Actief' : 'Niet geconfigureerd';
+    }
 
     // Simulation Banner
     const banner = document.getElementById('simulation-banner');
